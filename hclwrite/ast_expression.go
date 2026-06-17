@@ -18,6 +18,10 @@ type Expression struct {
 	wrapped       *node
 }
 
+func (e *Expression) unwrap() *node {
+	return e.wrapped
+}
+
 func newExpression() *Expression {
 	return &Expression{
 		inTree:        newInTree(),

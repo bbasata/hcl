@@ -3,7 +3,10 @@
 
 package hclwrite
 
-import "strings"
+import (
+	"reflect"
+	"strings"
+)
 
 type ObjectConsExpr struct {
 	inTree
@@ -18,19 +21,62 @@ func newObjectConsExpr() *ObjectConsExpr {
 	}
 }
 
-func (o *ObjectConsExpr) ValueFor(key string) *ObjectConsValue {
+func (o *ObjectConsExpr) ItemFor(key string) *ObjectConsItem {
 	for _, n := range o.items.List() {
 		if item, ok := n.content.(*ObjectConsItem); ok {
 			k := item.key.content.(*ObjectConsKeyExpr)
 
 			maybeKey := k.String()
 			if maybeKey == key {
-				return item.value.content.(*ObjectConsValue)
+				return item
 			}
 		}
 	}
 
 	return nil
+}
+
+func (o *ObjectConsExpr) ValueFor(key string) *ObjectConsValue {
+	if item := o.ItemFor(key); item == nil {
+		return nil
+	} else {
+		return item.value.content.(*ObjectConsValue)
+	}
+}
+
+// SetItemRaw either replaces the expression of an existing item of the given
+// name or adds a new item definition to the end of the object, using the given
+// tokens verbatim as the expression.
+//
+// The same caveats apply to this function as for NewExpressionRaw on which it
+// is based. If possible, prefer to use SetItemValue or SetItemTraversal.
+func (o *ObjectConsExpr) SetItemRaw(key string, tokens Tokens) (k *ObjectConsKeyExpr, v *ObjectConsValue) {
+	item := o.ItemFor(key)
+	expr := NewExpressionRaw(tokens)
+	if item != nil {
+		k = item.key.content.(*ObjectConsKeyExpr)
+		v = item.value.content.(*ObjectConsValue)
+
+		v.expr.list.Clear()
+		v.expr = v.expr.ReplaceWith(expr)
+		v.children.AppendNode(v.expr)
+
+	} else {
+		item = newObjectConsItem()
+
+		ident := newIdentifier(TokensForIdentifier(key)[0])
+		k = newObjectConsKeyExpr(newNode(ident))
+		item.key = item.children.Append(k)
+
+		v = newObjectConsValue() // TODO: expr in constructor
+		v.expr = v.children.Append(expr)
+		item.value = item.children.Append(v)
+
+		node := newNode(item)
+		o.children.AppendNode(node)
+		o.items.Add(node)
+	}
+	return
 }
 
 type ObjectConsItem struct {
@@ -48,8 +94,11 @@ func newObjectConsItem() *ObjectConsItem {
 type ObjectConsKeyExpr struct {
 	inTree
 
-	literalName string
-	wrapped     *node
+	wrapped *node
+}
+
+func (k *ObjectConsKeyExpr) unwrap() *node {
+	return k.wrapped
 }
 
 func newObjectConsKeyExpr(wrapped *node) *ObjectConsKeyExpr {
@@ -67,9 +116,15 @@ func (k *ObjectConsKeyExpr) String() string {
 		return ""
 	}
 
-	if t, ok := k.wrapped.content.(*Traversal); ok && len(t.steps.List()) > 0 {
+	unwrapped := unwrapUntilType(k.wrapped, reflect.TypeFor[*identifier]())
+	if unwrapped == nil {
+		return ""
+	}
+
+	if ident, ok := unwrapped.content.(*identifier); ok {
 		var b strings.Builder
-		tok := t.steps.List()[0].BuildTokens(nil)
+		tok := ident.BuildTokens(nil)
+		format(tok) // removes any SpacesBefore
 		tok.WriteTo(&b)
 
 		return b.String()
