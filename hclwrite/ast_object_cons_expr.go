@@ -21,6 +21,17 @@ func newObjectConsExpr() *ObjectConsExpr {
 	}
 }
 
+func (o *ObjectConsExpr) Items() []*ObjectConsItem {
+	list := o.items.List()
+	items := make([]*ObjectConsItem, 0, len(list))
+
+	for _, n := range list {
+		items = append(items, n.content.(*ObjectConsItem))
+	}
+
+	return items
+}
+
 func (o *ObjectConsExpr) ItemFor(key string) *ObjectConsItem {
 	for _, n := range o.items.List() {
 		if item, ok := n.content.(*ObjectConsItem); ok {
